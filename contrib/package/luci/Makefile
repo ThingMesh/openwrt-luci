@@ -212,7 +212,7 @@ endef
 
 $(eval $(call protocol,core,Support for static/dhcp/none))
 $(eval $(call protocol,ppp,Support for PPP/PPPoE/PPPoA/PPtP))
-$(eval $(call protocol,6x4,Support for 6in4/6to4/6rd,+PACKAGE_luci-proto-6x4:6in4 +PACKAGE_luci-proto-6x4:6to4 +PACKAGE_luci-proto-6x4:6rd))
+$(eval $(call protocol,ipv6,Support for DHCPv6/6in4/6to4/6rd,+PACKAGE_luci-proto-ipv6:6in4 +PACKAGE_luci-proto-ipv6:6to4 +PACKAGE_luci-proto-ipv6:6rd +PACKAGE_luci-proto-ipv6:ipv6-support))
 $(eval $(call protocol,3g,Support for 3G,+PACKAGE_luci-proto-3g:comgt))
 $(eval $(call protocol,relay,Support for relayd pseudo bridges,+PACKAGE_luci-proto-relay:relayd))
 
@@ -595,12 +595,12 @@ endef
 $(eval $(call collection,,\
 	Standard OpenWrt set including full admin with ppp support and the \
 	default OpenWrt theme,\
-	+uhttpd +luci-mod-admin-full +luci-theme-openwrt +luci-app-firewall \
-	+luci-proto-core +luci-proto-ppp +libiwinfo-lua))
+	+uhttpd +uhttpd-mod-ubus +luci-mod-admin-full +luci-theme-openwrt \
+	+luci-app-firewall +luci-proto-core +luci-proto-ppp +libiwinfo-lua))
 
 $(eval $(call collection,ssl,\
 	Standard OpenWrt set with HTTPS support,\
-	+luci +uhttpd-mod-tls +px5g))
+	+luci +libustream-cyassl +px5g))
 
 $(eval $(call collection,light,\
 	Minimum package set using only admin mini and the standard theme,\
