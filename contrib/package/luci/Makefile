@@ -196,7 +196,7 @@ endef
 
 $(eval $(call protocol,core,Support for static/dhcp/none))
 $(eval $(call protocol,ppp,Support for PPP/PPPoE/PPPoA/PPtP))
-$(eval $(call protocol,ipv6,Support for DHCPv6/6in4/6to4/6rd,+PACKAGE_luci-proto-ipv6:6in4 +PACKAGE_luci-proto-ipv6:6to4 +PACKAGE_luci-proto-ipv6:6rd +PACKAGE_luci-proto-ipv6:ipv6-support))
+$(eval $(call protocol,ipv6,Support for DHCPv6/6in4/6to4/6rd,+PACKAGE_luci-proto-ipv6:6in4 +PACKAGE_luci-proto-ipv6:6to4 +PACKAGE_luci-proto-ipv6:6rd +PACKAGE_luci-proto-ipv6:odhcp6c))
 $(eval $(call protocol,3g,Support for 3G,+PACKAGE_luci-proto-3g:comgt))
 $(eval $(call protocol,relay,Support for relayd pseudo bridges,+PACKAGE_luci-proto-relay:relayd))
 
@@ -323,7 +323,7 @@ $(eval $(call application,meshwizard, Shellscript based wizard to setup mesh net
         +PACKAGE_luci-app-freifunk-meshwizard:meshwizard))
 
 $(eval $(call application,olsr,OLSR configuration and status module,\
-	+olsrd +olsrd-mod-txtinfo))
+	+olsrd +olsrd-mod-jsoninfo))
 
 $(eval $(call application,olsr-viz,OLSR Visualisation,\
 	luci-app-olsr +olsrd-mod-txtinfo))
@@ -508,8 +508,8 @@ define theme
 endef
 
 $(eval $(call theme,base,Common base for all themes))
-$(eval $(call theme,openwrt,OpenWrt.org (default),,,1))
-$(eval $(call theme,bootstrap,Bootstrap Theme))
+$(eval $(call theme,openwrt,OpenWrt.org))
+$(eval $(call theme,bootstrap,Bootstrap Theme (default),,,1))
 
 $(eval $(call theme,freifunk-bno,Freifunk Berlin Nordost Theme,\
 	Stefan Pirwitz <stefan-at-freifunk-bno-dot-de>))
@@ -585,7 +585,7 @@ endef
 $(eval $(call collection,,\
 	Standard OpenWrt set including full admin with ppp support and the \
 	default OpenWrt theme,\
-	+uhttpd +uhttpd-mod-ubus +luci-mod-admin-full +luci-theme-openwrt \
+	+uhttpd +uhttpd-mod-ubus +luci-mod-admin-full +luci-theme-bootstrap \
 	+luci-app-firewall +luci-proto-core +luci-proto-ppp +libiwinfo-lua))
 
 $(eval $(call collection,ssl,\
