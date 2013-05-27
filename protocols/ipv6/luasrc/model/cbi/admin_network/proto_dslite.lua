@@ -2,6 +2,7 @@
 LuCI - Lua Configuration Interface
 
 Copyright 2011 Jo-Philipp Wich <xm@subsignal.org>
+Copyright 2013 Steven Barth <steven@midlink.org>
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,17 +13,32 @@ You may obtain a copy of the License at
 
 local map, section, net = ...
 
-local ipaddr, defaultroute, metric, ttl, mtu
+local peeraddr, ip6addr
+local tunlink, defaultroute, metric, ttl, mtu
 
 
-ipaddr = section:taboption("general", Value, "ipaddr",
-	translate("Local IPv4 address"),
+
+
+peeraddr = section:taboption("general", Value, "peeraddr",
+	translate("DS-Lite AFTR address"))
+
+peeraddr.rmempty  = false
+peeraddr.datatype = "ip6addr"
+
+ip6addr = section:taboption("general", Value, "ip6addr",
+	translate("Local IPv6 address"),
 	translate("Leave empty to use the current WAN address"))
 
-ipaddr.datatype = "ip4addr"
+ip6addr.datatype = "ip6addr"
+
+
+tunlink = section:taboption("advanced", DynamicList, "tunlink", translate("Tunnel Link"))
+tunlink.template = "cbi/network_netlist"
+tunlink.nocreate = true
+
 
 defaultroute = section:taboption("advanced", Flag, "defaultroute",
-	translate("Use default gateway"),
+	translate("Default gateway"),
 	translate("If unchecked, no default route is configured"))
 
 defaultroute.default = defaultroute.enabled

@@ -196,7 +196,7 @@ endef
 
 $(eval $(call protocol,core,Support for static/dhcp/none))
 $(eval $(call protocol,ppp,Support for PPP/PPPoE/PPPoA/PPtP))
-$(eval $(call protocol,ipv6,Support for DHCPv6/6in4/6to4/6rd,+PACKAGE_luci-proto-ipv6:6in4 +PACKAGE_luci-proto-ipv6:6to4 +PACKAGE_luci-proto-ipv6:6rd +PACKAGE_luci-proto-ipv6:odhcp6c))
+$(eval $(call protocol,ipv6,Support for DHCPv6/6in4/6to4/6rd/DS-Lite))
 $(eval $(call protocol,3g,Support for 3G,+PACKAGE_luci-proto-3g:comgt))
 $(eval $(call protocol,relay,Support for relayd pseudo bridges,+PACKAGE_luci-proto-relay:relayd))
 
@@ -265,7 +265,7 @@ $(eval $(call module,admin-mini,LuCI Essentials - stripped down and user-friendl
 $(eval $(call module,admin-full,LuCI Administration - full-featured for full control,+luci-mod-admin-core +luci-lib-ipkg))
 $(eval $(call module,failsafe,LuCI Fail-Safe - Fail-Safe sysupgrade module,+luci-mod-admin-core))
 $(eval $(call module,rpc,LuCI RPC - JSON-RPC API,+luci-lib-json))
-$(eval $(call module,freifunk,LuCI Freifunk module,+luci-mod-admin-full +luci-lib-json +PACKAGE_luci-mod-freifunk:freifunk-firewall +freifunk-common +community-profiles))
+$(eval $(call module,freifunk,LuCI Freifunk module,+luci-mod-admin-full +luci-lib-json +PACKAGE_luci-mod-freifunk:freifunk-firewall +freifunk-common))
 $(eval $(call module,niu,NIU - Next Generation Interface,+luci-mod-admin-core @BROKEN))
 
 
