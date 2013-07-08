@@ -168,6 +168,7 @@ $(eval $(call library,nixio,NIXIO POSIX library,+PACKAGE_luci-lib-nixio_openssl:
 $(eval $(call library,px5g,RSA/X.509 Key Generator (required for LuCId SSL support),+luci-lib-nixio))
 $(eval $(call library,sys,LuCI Linux/POSIX system library))
 $(eval $(call library,web,MVC Webframework,+luci-lib-sys +luci-lib-nixio +luci-lib-core +luci-sgi-cgi))
+$(eval $(call library,luaneightbl,neightbl - Lua lib for IPv6 neighbors,+luci-lib-core))
 
 
 ### Protocols ###
@@ -323,7 +324,7 @@ $(eval $(call application,meshwizard, Shellscript based wizard to setup mesh net
         +PACKAGE_luci-app-freifunk-meshwizard:meshwizard))
 
 $(eval $(call application,olsr,OLSR configuration and status module,\
-	+olsrd +olsrd-mod-jsoninfo))
+	+olsrd +olsrd-mod-jsoninfo +luci-lib-luaneightbl))
 
 $(eval $(call application,olsr-viz,OLSR Visualisation,\
 	luci-app-olsr +olsrd-mod-txtinfo))
