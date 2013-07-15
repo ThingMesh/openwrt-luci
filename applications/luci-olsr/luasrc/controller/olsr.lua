@@ -229,7 +229,7 @@ function action_neigh(json)
 					if rmac == assocmac then
 						signal = tonumber(assot.signal)
 						noise = tonumber(assot.noise)
-						snr = signal/noise
+						snr = (noise*-1) - (signal*-1)
 					end
 				end
 			end
