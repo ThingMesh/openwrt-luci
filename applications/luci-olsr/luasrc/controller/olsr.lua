@@ -105,18 +105,18 @@ end
 function action_json()
 	local http = require "luci.http"
 	local utl = require "luci.util"
+	local uci = require "luci.model.uci".cursor_state()
+	local jsonreq4 = ""
+	local jsonreq6 = ""
 
-	local jsonreq4 = utl.exec("echo /status | nc 127.0.0.1 9090")
-	local jsonreq6 = utl.exec("echo /status | nc ::1 9090")
+	local IpVersion = uci:get_first("olsrd", "olsrd","IpVersion")
+	if IpVersion == "4" or IpVersion == "6and4" then
+		jsonreq4 = utl.exec("echo /status | nc 127.0.0.1 9090")
+	end
+	if IpVersion == "6" or IpVersion == "6and4" then
+		jsonreq6 = utl.exec("echo /status | nc ::1 9090")
+	end
 	http.prepare_content("application/json")
-
-	if #jsonreq4 < 1 then
-		jsonreq4 = "{}"
-	end
-
-	if #jsonreq6 < 1 then
-		jsonreq6 = "{}"
-	end
 
 	http.write("{v4:" .. jsonreq4 .. ", v6:" .. jsonreq6 .. "}")
 end
@@ -135,6 +135,7 @@ function action_neigh(json)
 	local sys = require "luci.sys"
 	local assoclist = {}
 	local neightbl = require "neightbl"
+	local ipc = require "luci.ip"
 
 	luci.sys.net.routes(function(r) 
 		if r.dest:prefix() == 0 then 
@@ -162,9 +163,9 @@ function action_neigh(json)
 
 	for k, v in ipairs(data) do
 		local interface
-		local snr = 1
-		local signal = 1
-		local noise = 1
+		local snr = 0
+		local signal = 0
+		local noise = 0
 		local arptable = sys.net.arptable()
 		local mac = ""
 		local rmac = ""
@@ -193,27 +194,20 @@ function action_neigh(json)
 				end
 			end
 		elseif v.proto == '6' then
-			local uprefix = uci:get("network", "globals", "ula_prefix") or ""
-			uprefix = string.gsub(uprefix, "::/.*", "")
-			ip6assign_c = 0
 			uci:foreach("network", "interface",function(vif)
-				local ip6assign = vif.ip6assign or 0
-				if ip6assign ~= 0 then
-					if ip6assign_c == 0 then
-						ip6assign_addr = uprefix.."::1"
-					else
-						ip6assign_addr = uprefix..":"..ip6assign_c.."::1"
+				local name = vif['.name']
+				local net = ntm:get_network(name)
+				local device = net and net:get_interface()
+				local locip = ipc.IPv6(v.localIP)
+				if device and device:ip6addrs() and locip then
+					for _, a in ipairs(device:ip6addrs()) do
+						if not a:is6linklocal() then
+							if a:host() == locip:host() then
+								interface = name
+								neihgt = neightbl.get(device.ifname) or {}
+							end
+						end
 					end
-					ip6assign_c = ip6assign_c + 1
-				end
-				if ip6assign_addr == v.localIP then
-					interface = vif['.name'] or vif.interface
-					neihgt = neightbl.get(vif.ifname) or {}
-					return
-				elseif vif.ip6addr and string.gsub(vif.ip6addr, "/"..ip6assign, "") == v.localIP then
-					interface = vif['.name'] or vif.interface
-					neihgt = neightbl.get(vif.ifname) or {}
-					return
 				end
 			end)
 			for ip,mac in pairs(neihgt) do
@@ -392,9 +386,16 @@ function fetch_jsoninfo(otable)
 	local uci = require "luci.model.uci".cursor_state()
 	local utl = require "luci.util"
 	local json = require "luci.json"
-	local jsonreq4 = utl.exec("echo /" .. otable .. " | nc 127.0.0.1 9090")
+	local IpVersion = uci:get_first("olsrd", "olsrd","IpVersion")
+	local jsonreq4 = ""
+	local jsonreq6 = ""
+	if IpVersion == "4" or IpVersion == "6and4" then
+		jsonreq4 = utl.exec("echo /" .. otable .. " | nc 127.0.0.1 9090")
+	end
+	if IpVersion == "6" or IpVersion == "6and4" then
+		jsonreq6 = utl.exec("echo /" .. otable .. " | nc ::1 9090")
+	end
 	local jsondata4 = {}
-	local jsonreq6 = utl.exec("echo /" .. otable .. " | nc ::1 9090")
 	local jsondata6 = {}
 	local data4 = {}
 	local data6 = {}
@@ -406,7 +407,7 @@ function fetch_jsoninfo(otable)
 		return nil, 0, 0, true
 	end
 
-	if #jsonreq4 ~= 0 then
+	if jsonreq4 ~= "" then
 		has_v4 = 1
 		jsondata4 = json.decode(jsonreq4)
 		if otable == 'status' then
@@ -420,7 +421,7 @@ function fetch_jsoninfo(otable)
 		end
 
 	end
-	if #jsonreq6 ~= 0 then
+	if jsonreq6 ~= "" then
 		has_v6 = 1
 		jsondata6 = json.decode(jsonreq6)
 		if otable == 'status' then

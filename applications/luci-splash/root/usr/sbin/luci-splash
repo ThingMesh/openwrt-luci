@@ -149,7 +149,7 @@ function get_known_macs(list)
 	local leased_macs = { }
 
 	if not list or list == "lease" then
-		uci:foreach("luci_splash", "lease",
+		uci:foreach("luci_splash_leases", "lease",
 			function(s) leased_macs[s.mac:lower()] = true end)
 	end
 
@@ -164,17 +164,6 @@ function get_known_macs(list)
 	end
 
 	return leased_macs
-end
-
-
--- Get a list of known ip addresses
-function get_known_ips(macs, arp)
-	local leased_ips = { }
-	if not macs then macs = get_known_macs() end
-	for _, e in ipairs(arp or net.arptable()) do
-		if macs[e["HW address"]:lower()] then leased_ips[e["IP address"]] = true end
-	end
-	return leased_ips
 end
 
 
@@ -231,12 +220,12 @@ function add_lease(mac, arp, no_uci)
 	-- Add lease if there is an ip addr
 	if ipaddr then
 		if not no_uci then
-			uci:section("luci_splash", "lease", convert_mac_to_secname(mac), {
+			uci:section("luci_splash_leases", "lease", convert_mac_to_secname(mac), {
 				mac    = mac,
 				ipaddr = ipaddr,
 				start  = os.time()
 			})
-			uci:save("luci_splash")
+			uci:save("luci_splash_leases")
 		end
 		add_lease_rule(mac, ipaddr)
 	else
@@ -249,7 +238,7 @@ end
 function remove_lease(mac)
 	mac = mac:lower()
 
-	uci:delete_all("luci_splash", "lease",
+	uci:delete_all("luci_splash_leases", "lease",
 		function(s)
 			if s.mac:lower() == mac then
 				remove_lease_rule(mac, s.ipaddr)
@@ -258,7 +247,7 @@ function remove_lease(mac)
 			return false
 		end)
 		
-	uci:save("luci_splash")
+	uci:save("luci_splash_leases")
 end
 
 
@@ -304,11 +293,13 @@ end
 
 -- Add an iptables rule
 function add_lease_rule(mac, ipaddr)
-    os.execute("iptables -t mangle -I luci_splash_mark_out -m mac --mac-source %q -j MARK --set-mark 79" % mac)
-    os.execute("iptables -t mangle -I luci_splash_mark_in -d %q -j MARK --set-mark 80" % ipaddr)
+	os.execute("iptables -t mangle -I luci_splash_mark_out -m mac --mac-source %q -j MARK --set-mark 79" % mac)
+	os.execute("iptables -t mangle -I luci_splash_mark_in -d %q -j MARK --set-mark 80 -m comment --comment %s" % {ipaddr, mac:upper()})
+
 	if has_ipv6 then
-        os.execute("ip6tables -t mangle -I luci_splash_mark_out -m mac --mac-source %q -j MARK --set-mark 79" % mac)
-        os.execute("ip6tables -t mangle -I luci_splash_mark_in -d %q -j MARK --set-mark 80" % ipaddr)
+	        os.execute("ip6tables -t mangle -I luci_splash_mark_out -m mac --mac-source %q -j MARK --set-mark 79" % mac)
+		-- not working yet, needs the ip6addr
+		--os.execute("ip6tables -t mangle -I luci_splash_mark_in -d %q -j MARK --set-mark 80 -m comment --comment %s" % {ipaddr, mac:upper()})
 	end
 
 
@@ -323,15 +314,13 @@ end
 -- Remove lease, black- or whitelist rules
 function remove_lease_rule(mac, ipaddr)
 	ipt:resync()
-
-	if ipaddr then
-		ipt_delete_all({table="mangle", chain="luci_splash_mark_in",  destination=ipaddr})
-		ipt_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", mac:upper()}})
-	end
-
+	ipt_delete_all({table="mangle", chain="luci_splash_mark_in", options={"/*", mac:upper()}})
+	ipt_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", mac:upper()}})
 	ipt_delete_all({table="filter", chain="luci_splash_filter",   options={"MAC", mac:upper()}})
 	ipt_delete_all({table="nat",    chain="luci_splash_leases",   options={"MAC", mac:upper()}})
 	if has_ipv6 then
+		--ipt6_delete_all({table="mangle", chain="luci_splash_mark_in", options={"/*", mac:upper()}})
+		ipt6_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", mac:upper()}})
 		ipt6_delete_all({table="filter", chain="luci_splash_filter",   options={"MAC", mac:upper()}})
 	end
 end
@@ -363,14 +352,14 @@ function sync()
 	local time = os.time()
 
 	-- Current leases in state files
-	local leases = uci:get_all("luci_splash")
+	local leases = uci:get_all("luci_splash_leases")
 	
 	-- Convert leasetime to seconds
 	local leasetime = tonumber(uci:get("luci_splash", "general", "leasetime")) * 3600
 	
 	-- Clean state file
-	uci:load("luci_splash")
-	uci:revert("luci_splash")
+	uci:load("luci_splash_leases")
+	uci:revert("luci_splash_leases")
 	
 	-- For all leases
 	for k, v in pairs(leases) do
@@ -380,7 +369,7 @@ function sync()
 				remove_lease_rule(v.mac, v.ipaddr)
 			else
 				-- Rewrite state
-				uci:section("luci_splash", "lease", convert_mac_to_secname(v.mac), {		
+				uci:section("luci_splash_leases", "lease", convert_mac_to_secname(v.mac), {		
 					mac    = v.mac,
 					ipaddr = v.ipaddr,
 					start  = v.start
@@ -389,11 +378,10 @@ function sync()
 		end
 	end
 
-	uci:save("luci_splash")
+	uci:save("luci_splash_leases")
 
-	-- Get current IPs and MAC addresses
+	-- Get the mac addresses of current leases
 	local macs = get_known_macs()
-	local ips  = get_known_ips(macs)
 
 	ipt:resync()
 
@@ -403,16 +391,17 @@ function sync()
 		function(r) return not macs[r.options[2]:lower()] end)
 	ipt_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", "MARK", "set"}},
 		function(r) return not macs[r.options[2]:lower()] end)
-	ipt_delete_all({table="mangle", chain="luci_splash_mark_in", options={"MARK", "set"}},
-		function(r) return not ips[r.destination] end)
+	ipt_delete_all({table="mangle", chain="luci_splash_mark_in", options={"/*", "MARK", "set"}},
+		function(r) return not macs[r.options[2]:lower()] end)
+
 
 	if has_ipv6 then
 		ipt6_delete_all({table="filter", chain="luci_splash_filter", options={"MAC"}},
 			function(r) return not macs[r.options[2]:lower()] end)
-		ipt_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", "MARK", "set"}},
+		ipt6_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", "MARK", "set"}},
 			function(r) return not macs[r.options[2]:lower()] end)
-		ipt_delete_all({table="mangle", chain="luci_splash_mark_in", options={"MARK", "set"}},
-			function(r) return not ips[r.destination] end)
+		--ipt6_delete_all({table="mangle", chain="luci_splash_mark_in", options={"/*", "MARK", "set"}},
+		--	function(r) return not macs[r.options[2]:lower()] end)
 	end
 
 	unlock()
@@ -441,7 +430,7 @@ function list()
 	end
 
 	-- Print listings
-	local leases = uci:get_all("luci_splash")
+	local leases = uci:get_all("luci_splash_leases")
 
 	print(string.format(
 		"%-17s  %-15s  %-9s  %-4s  %-7s  %20s",
