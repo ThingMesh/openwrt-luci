@@ -44,6 +44,19 @@ function get_id(ip)
 	end
 end
 
+function update_stats(leased, whitelisted, whitelisttotal, blacklisted, blacklisttotal) 
+	local leases = uci:get_all("luci_splash_leases", "stats")
+	uci:delete("luci_splash_leases", "stats")
+	uci:section("luci_splash_leases", "stats", "stats", {
+		leases    = leased or (leases and leases.leases) or 0,
+		whitelisttotal = whitelisttotal or (leased and leases.whitelisttotal) or 0,
+		whitelistonline = whitelisted or (leases and leases.whitelistonline) or 0,
+		blacklisttotal = blacklisttotal or (leases and leases.blacklisttotal) or 0,
+		blacklistonline = blacklisted or (leases and leases.blacklistonline) or 0,
+	})
+	uci:save("luci_splash_leases")
+end
+
 function get_device_for_ip(ipaddr)
 	local dev
 	uci:foreach("network", "interface", function(s)
@@ -299,6 +312,11 @@ function add_lease(mac, arp, no_uci)
 	if ipaddr then
 		local device = get_device_for_ip(ipaddr)
 		if not no_uci then
+			local leased = uci:get("luci_splash_leases", "stats", "leases")
+			if type(tonumber(leased)) == "number" then
+				update_stats(leased + 1, nil, nil, nil, nil)
+			end
+
 			uci:section("luci_splash_leases", "lease", convert_mac_to_secname(mac), {
 				mac    = mac,
 				ipaddr = ipaddr,
@@ -324,6 +342,10 @@ function remove_lease(mac)
 		function(s)
 			if s.mac:lower() == mac then
 				remove_lease_rule(mac, s.ipaddr, s.device, tonumber(s.limit_up), tonumber(s.limit_down))
+				local leased = uci:get("luci_splash_leases", "stats", "leases")
+				if type(tonumber(leased)) == "number" and tonumber(leased) > 0 then
+					update_stats(leased - 1, nil, nil, nil, nil)
+				end
 				return true
 			end
 			return false
@@ -368,10 +390,12 @@ function remove_whitelist_tc(mac)
 	end
         uci:foreach("luci_splash", "iface", function(s)
 		local device = get_physdev(s['.name'])
-		local handle = get_filter_handle('ffff:', 'src', device, mac)
-		exec('tc filter del dev "%s" parent ffff: protocol ip prio 1 handle %s u32' % { device, handle })
-		local handle = get_filter_handle('1:', 'dest', device, mac)
-		exec('tc filter del dev "%s" parent 1:0 protocol ip prio 1 handle %s u32' % { device, handle })
+		if device and device ~= "" then
+			local handle = get_filter_handle('ffff:', 'src', device, mac)
+			exec('tc filter del dev "%s" parent ffff: protocol ip prio 1 handle %s u32' % { device, handle })
+			local handle = get_filter_handle('1:', 'dest', device, mac)
+			exec('tc filter del dev "%s" parent 1:0 protocol ip prio 1 handle %s u32' % { device, handle })
+		end
         end)
 end
 
@@ -464,8 +488,10 @@ function add_whitelist_rule(mac)
 	end
         uci:foreach("luci_splash", "iface", function(s)
 		local device = get_physdev(s['.name'])
-		exec('tc filter add dev "%s" parent ffff: protocol ip prio 1 u32 match ether src %s police pass' % { device, mac })
-		exec('tc filter add dev "%s" parent 1:0 protocol ip prio 1 u32 match ether dst %s classid 1:1' % { device, mac })
+		if device and device ~= "" then
+			exec('tc filter add dev "%s" parent ffff: protocol ip prio 1 u32 match ether src %s police pass' % { device, mac })
+			exec('tc filter add dev "%s" parent 1:0 protocol ip prio 1 u32 match ether dst %s classid 1:1' % { device, mac })
+		end
         end)
 end
 
@@ -503,7 +529,7 @@ function sync()
 				-- Remove expired
 				remove_lease_rule(v.mac, v.ipaddr, v.device, tonumber(v.limit_up), tonumber(v.limit_down))
 			else
-				leasecount = count + 1
+				leasecount = leasecount + 1
 				-- Rewrite state
 				uci:section("luci_splash_leases", "lease", convert_mac_to_secname(v.mac), {		
 					mac    = v.mac,
@@ -551,13 +577,7 @@ function sync()
 		end
 	end
 
-	uci:section("luci_splash_leases", "stats", "stats", {
-		leases    = leasecount,
-		whitelisttotal = whitelist_total,
-		whitelistonline = whitelist_online,
-		blacklisttotal = blacklist_total,
-		blacklistonline = blacklist_online,
-	})
+	update_stats(leasecount, whitelist_online, whitelist_total, blacklist_online, blacklist_total)
 
 	uci:save("luci_splash_leases")
 
