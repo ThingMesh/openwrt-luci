@@ -13,7 +13,7 @@ local net = sys.net
 local fs = require "luci.fs"
 local ip = require "luci.ip"
 
-local debug = false
+local debug = true
 
 local has_ipv6 = fs.access("/proc/net/ipv6_route") and fs.access("/usr/sbin/ip6tables")
 
@@ -26,12 +26,14 @@ function unlock()
 end
 
 function exec(cmd)
-	local ret = sys.exec(cmd)
 	if debug then
+		local ret = sys.exec(cmd)
 		print('+ ' .. cmd)
 		if ret and ret ~= "" then
 			print(ret)
 		end
+	else
+		local ret = sys.exec(cmd .. " &> /dev/null")
 	end
 end
 
@@ -84,7 +86,7 @@ function get_filter_handle(parent, direction, device, mac)
 	local tbl = {}
 	local handle
 	for k, v in pairs(input) do
-		handle = v:match('filter protocol ip pref %d+ u32 fh (%d*:%d*:%d*) order')
+		handle = v:match('filter protocol ip pref %d+ u32 fh (%d*:%d*:%d*) order') or v:match('filter protocol all pref %d+ u32 fh (%d*:%d*:%d*) order')
 		if handle then
 			local mac, mac1, mac2, mac3, mac4, mac5, mac6
 			if direction == 'src' then
@@ -106,6 +108,26 @@ function get_filter_handle(parent, direction, device, mac)
 	return handle
 end
 
+function macvalid(mac)
+	if mac and mac:match(
+		"^[a-fA-F0-9][a-fA-F0-9]:[a-fA-F0-9][a-fA-F0-9]:" ..
+		"[a-fA-F0-9][a-fA-F0-9]:[a-fA-F0-9][a-fA-F0-9]:" ..
+		"[a-fA-F0-9][a-fA-F0-9]:[a-fA-F0-9][a-fA-F0-9]$"
+	) then
+		return true
+	end
+
+	return false
+end
+
+function ipvalid(ipaddr)
+	if ipaddr then
+		return ip.IPv4(ipaddr) and true or false
+	end
+
+	return false
+end
+
 function main(argv)
 	local cmd = table.remove(argv, 1)
 	local arg = argv[1]
@@ -116,6 +138,12 @@ function main(argv)
 	if ( cmd == "lease" or cmd == "add-rules" or cmd == "remove" or
 	     cmd == "whitelist" or cmd == "blacklist" or cmd == "status" ) and #argv > 0
 	then
+		if not (macvalid(arg) or ipvalid(arg)) then
+			print("Invalid argument. The second argument must " ..
+				"be a valid IPv4 or Mac Address.")
+			os.exit(1)
+		end
+
 		lock()
 
 		local arp_cache      = net.arptable()
@@ -157,9 +185,19 @@ function main(argv)
 				end
 
 				if cmd ~= "whitelist" and whitelist_macs[mac] then
-					print("Removing %s from whitelist" % mac)
-					remove_whitelist(mac)
-					whitelist_macs[mac] = nil					
+					if cmd == "lease" then
+						print('%s is whitelisted. Remove it before you can lease it.' % mac)
+					else
+						print("Removing %s from whitelist" % mac)
+						remove_whitelist(mac)
+						whitelist_macs[mac] = nil
+					end
+				end
+
+				if cmd == "whitelist" and leased_macs[mac] then
+					print("Removing %s from leases" % mac)
+					remove_lease(mac)
+					leased_macs[mac] = nil
 				end
 
 				if cmd ~= "blacklist" and blacklist_macs[mac] then
@@ -169,9 +207,11 @@ function main(argv)
 				end
 
 				if cmd == "lease" and not leased_macs[mac] then
-					print("Adding %s to leases" % mac)
-					add_lease(mac)
-					leased_macs[mac] = true
+					if not whitelist_macs[mac] then
+						print("Adding %s to leases" % mac)
+						add_lease(mac)
+						leased_macs[mac] = true
+					end
 				elseif cmd == "whitelist" and not whitelist_macs[mac] then
 					print("Adding %s to whitelist" % mac)
 					add_whitelist(mac)
@@ -385,16 +425,24 @@ function remove_whitelist(mac)
 end
 
 function remove_whitelist_tc(mac)
-	if debug then
-		print("Removing whitelist filters for " .. mac)
-	end
         uci:foreach("luci_splash", "iface", function(s)
 		local device = get_physdev(s['.name'])
 		if device and device ~= "" then
+			if debug then
+				print("Removing whitelist filters for %s interface %s." % {mac, device})
+			end
 			local handle = get_filter_handle('ffff:', 'src', device, mac)
-			exec('tc filter del dev "%s" parent ffff: protocol ip prio 1 handle %s u32' % { device, handle })
+			if handle then
+				exec('tc filter del dev "%s" parent ffff: protocol ip prio 1 handle %s u32' % { device, handle })
+			else
+				print('Warning! Could not get a handle for %s parent :ffff on interface %s' % { mac, device })
+			end
 			local handle = get_filter_handle('1:', 'dest', device, mac)
-			exec('tc filter del dev "%s" parent 1:0 protocol ip prio 1 handle %s u32' % { device, handle })
+			if handle then
+				exec('tc filter del dev "%s" parent 1:0 protocol ip prio 1 handle %s u32' % { device, handle })
+			else
+				print('Warning! Could not get a handle for %s parent 1:0 on interface %s' % { mac, device })
+			end
 		end
         end)
 end
@@ -419,19 +467,23 @@ function add_lease_rule(mac, ipaddr, device)
 
 	exec("iptables -t mangle -I luci_splash_mark_out -m mac --mac-source %q -j RETURN" % mac)
 
+	-- Mark incoming packets to a splashed host
+	-- for ipv4 - by iptables and destination
 	if id and device then
 		exec("iptables -t mangle -I luci_splash_mark_in -d %q -j MARK --set-mark 0x1%s -m comment --comment %s" % {ipaddr, id, mac:upper()})
 	end
 
+	--for ipv6: need to use the mac here
 	if has_ipv6 then
 		exec("ip6tables -t mangle -I luci_splash_mark_out -m mac --mac-source %q -j MARK --set-mark 79" % mac)
-		-- not working yet, needs the ip6addr
-		--exec("ip6tables -t mangle -I luci_splash_mark_in -d %q -j MARK --set-mark 80 -m comment --comment %s" % {ipaddr, mac:upper()})
+		if id and device and tonumber(limit_down) then
+			exec("tc filter add dev %s parent 1:0 protocol ipv6 prio 1 u32 match ether dst %s classid 1:%s" % {device, mac:lower(), id})
+		end
 	end
 
 
 	if device and tonumber(limit_up) > 0 then
-		exec('tc filter add dev "%s" parent ffff: protocol ip prio 2 u32 match ether src %s police rate %skbit mtu 6k burst 6k drop' % {device, mac, limit_up})
+		exec('tc filter add dev "%s" parent ffff: protocol all prio 2 u32 match ether src %s police rate %skbit mtu 6k burst 6k drop' % {device, mac, limit_up})
 	end
 
 	if id and device and tonumber(limit_down) > 0 then
@@ -463,17 +515,21 @@ function remove_lease_rule(mac, ipaddr, device, limit_up, limit_down)
 		ipt6_delete_all({table="mangle", chain="luci_splash_mark_out", options={"MAC", mac:upper()}})
 		ipt6_delete_all({table="filter", chain="luci_splash_filter",   options={"MAC", mac:upper()}})
 	end
+
 	if device and tonumber(limit_up) > 0 then
 		local handle = get_filter_handle('ffff:', 'src', device, mac)
 		if handle then
-			exec('tc filter del dev "%s" parent ffff: protocol ip prio 2 handle %s u32 police rate %skbit mtu 6k burst 6k drop' % {device, handle, limit_up})
+			exec('tc filter del dev "%s" parent ffff: protocol all prio 2 handle %s u32 police rate %skbit mtu 6k burst 6k drop' % {device, handle, limit_up})
+		else
+			print('Warning! Could not get a handle for %s parent :ffff on interface %s' % { mac, device })
 		end
 	end
 
 	-- remove clients class
 	if device and id then
 		exec('tc class del dev "%s" classid 1:%s' % {device, id})
-		exec('tc qdisc del dev "%s" parent 1:%s sfq perturb 10' % { device, id })
+		exec('tc filter del dev "%s" parent 1:0 prio 1' % device) -- ipv6 rule
+		--exec('tc qdisc del dev "%s" parent 1:%s sfq perturb 10' % { device, id })
 	end
 
 end
