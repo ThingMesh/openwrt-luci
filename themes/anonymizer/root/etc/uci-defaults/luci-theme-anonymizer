@@ -1,0 +1,6 @@
+#!/bin/sh
+uci batch <<-EOF
+	set luci.themes.OpenWrt=/luci-static/anonymizer
+        commit luci
+EOF
+	
