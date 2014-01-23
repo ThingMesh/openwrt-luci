@@ -1,0 +1,6 @@
+#!/bin/sh
+uci batch <<-EOF
+	set luci.themes.Cloak=/luci-static/cloak
+	commit luci
+EOF
+exit 0
