@@ -1,6 +1,6 @@
 #!/bin/sh
 uci batch <<-EOF
 	set luci.themes.Anonymizer=/luci-static/anonymizer
-        commit luci
+	commit luci
 EOF
-	
+exit 0
